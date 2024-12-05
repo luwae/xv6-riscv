@@ -5,8 +5,11 @@ struct kmem_cache {
   uint align;
   void (*constructor)(void*, uint);
   void (*destructor)(void*, uint);
-  struct kmem_slab *head;
-  struct kmem_slab *complete_head;
+  struct kmem_slab *head_empty;
+  struct kmem_slab *head_partial;
+  struct kmem_slab *head_complete;
+  struct kmem_cache *prev;
+  struct kmem_cache *next;
 };
 
 struct kmem_slab {
