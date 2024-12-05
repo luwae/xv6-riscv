@@ -1,3 +1,5 @@
+void debug_slab_chain(struct kmem_cache*);
+
 // This uses Bonwick's naming scheme, even though I'm not a fan:
 // - _empty_ slabs are those that are fully occupied
 // - _partial_ slabs
@@ -34,52 +36,85 @@ void queue_remove(struct kmem_cache *cache, struct kmem_slab *slab) {
   slab->prev->next = slab->next;
   slab->next->prev = slab->prev;
 
-  if (cache->head == slab) {
-    cache->head = slab->next;
-  }
-  if (cache->complete_head == slab) {
-    cache->complete_head = slab->next;
+  if(slab->next == slab) {
+    cache->head = cache->complete_head = 0;
+  } else {
+    if(cache->head == slab) {
+      cache->head = slab->next;
+    }
+    if(cache->complete_head == slab) {
+      cache->complete_head = slab->next;
+    }
   }
 
   // this is only for security
   slab->prev = slab->next = 0;
 }
 
-void queue_insert_before_head(struct kmem_slab **head, struct kmem_slab *slab) {
-    struct kmem_slab *old_head = *head;
-    if (!old_head) {
+void queue_insert_base(struct kmem_slab **head_ptr, struct kmem_slab *slab) {
+    struct kmem_slab *head = *head_ptr;
+    if(!head) {
       slab->prev = slab;
       slab->next = slab;
     } else {
-      slab->prev = old_head->prev;
-      slab->next = old_head;
-      old_head->prev->next = slab;
-      old_head->prev = slab;
+      slab->prev = head->prev;
+      slab->next = head;
+      head->prev->next = slab;
+      head->prev = slab;
     }
-    *head = slab;
+    *head_ptr = slab;
+}
+
+void queue_insert_head(struct kmem_cache *cache, struct kmem_slab *slab) {
+    queue_insert_base(&cache->head, slab);
+    if(!cache->complete_head) {
+      cache->complete_head = cache->head;
+    }
+}
+
+void queue_insert_complete_head(struct kmem_cache *cache, struct kmem_slab *slab) {
+    queue_insert_base(&cache->complete_head, slab);
+    if(!cache->head) {
+      cache->head = cache->complete_head;
+    }
 }
 
 // slab was fully occupied and we freed one allocation
 void queue_on_empty_to_partial(struct kmem_cache *cache, struct kmem_slab *slab) {
-  queue_remove(cache, slab);
-  queue_insert_before_head(&cache->head, slab);
+  if(cache->head != slab) {
+    queue_remove(cache, slab);
+    queue_insert_head(cache, slab);
+  }
+  if (cache->complete_head == slab) {
+    cache->complete_head = cache->complete_head->next;
+  }
 }
 
-// slab was partial and now is fully occupied
+// slab was partial and now is fully occupied (it was the current head)
 void queue_on_partial_to_empty(struct kmem_cache *cache, struct kmem_slab *slab) {
   cache->head = cache->head->next;
 }
 
 // slab had one allocation and now 0
 void queue_on_partial_to_complete(struct kmem_cache *cache, struct kmem_slab *slab) {
-  queue_remove(cache, slab);
-  queue_insert_before_head(&cache->complete_head, slab);
+  if (cache->complete_head != slab) {
+    queue_remove(cache, slab);
+    queue_insert_complete_head(cache, slab);
+  }
 }
 
+// TODO I think this function doesn't have to exist:
+// - a slab can only go from complete to partial when we allocated from it
+// - this implies that it was in our head, otherwise we would have allocated from a partial slab
 // queue had 0 allocations and now 1
 void queue_on_complete_to_partial(struct kmem_cache *cache, struct kmem_slab *slab) {
-  queue_remove(cache, slab);
-  queue_insert_before_head(&cache->head, slab);
+  if (cache->head != slab) {
+    queue_remove(cache, slab);
+    queue_insert_head(cache, slab);
+  }
+  if(cache->complete_head == slab) {
+    cache->complete_head = cache->complete_head->next;
+  }
 }
 
 struct kmem_cache *kmem_cache_create(
@@ -143,12 +178,15 @@ void kmem_cache_grow(struct kmem_cache *cache) {
   ctl = (struct kmem_bufctl*)((char*)buf - slab->buf_eff_size + slab->bufctl_offset);
   ctl->next = NULL;
 
-  queue_insert_before_head(&cache->head, slab);
+  queue_insert_head(cache, slab);
+  cache->complete_head = slab;
+  debug_slab_chain(cache);
 }
 
 void kmem_cache_reap(struct kmem_cache *cache) {
   int modify_head = slab_is_complete(cache->head);
 
+  // TODO queue_remove here
   struct kmem_slab *start = cache->complete_head;
   while (slab_is_complete(cache->complete_head)) {
     struct kmem_slab *next = cache->complete_head->next;
@@ -162,14 +200,15 @@ void kmem_cache_reap(struct kmem_cache *cache) {
   if (modify_head) {
     cache->head = cache->complete_head;
   }
+  debug_slab_chain(cache);
 }
 
 void *kmem_cache_alloc(struct kmem_cache *cache, int flags) {
-  if(slab_is_empty(cache->head)) {
+  if(!cache->head || slab_is_empty(cache->head)) {
     kmem_cache_grow(cache);
-  }
-  if(slab_is_empty(cache->head)) {
-    return 0; // growing didn't work
+    if(!cache->head || slab_is_empty(cache->head)) {
+      return 0; // growing didn't work
+    }
   }
 
   struct kmem_slab *slab = cache->head;
@@ -184,6 +223,7 @@ void *kmem_cache_alloc(struct kmem_cache *cache, int flags) {
     queue_on_partial_to_empty(cache, slab);
   }
 
+  debug_slab_chain(cache);
   return (void*)((char*)ctl - slab->bufctl_offset);
 }
 
@@ -205,6 +245,7 @@ void kmem_cache_free(struct kmem_cache *cache, void *buf) {
   } else if (slab->refcnt == 0) {
     queue_on_partial_to_complete(cache, slab);
   }
+  debug_slab_chain(cache);
 }
 
 void kmem_cache_destroy(struct kmem_cache *cache) {
@@ -218,3 +259,67 @@ void kmem_cache_destroy(struct kmem_cache *cache) {
   kmem_cache_free(&cache_cache, cache);
 }
 
+// -------------
+
+void debug_slab_chain(struct kmem_cache *cache) {
+  if(!cache->head) {
+    if(!cache->complete_head) {
+      panic("debug_slab_chain: head is 0, but complete_head isn't");
+    }
+    return;
+  }
+  if(!cache->complete_head) {
+    panic("debug_slab_chain: complete_head is 0, but head isn't");
+  }
+
+  // assert two or more members in queue
+  // TODO this can't do cycle checking, we would need allocations for that
+
+  // order should be partial->complete->empty
+  int found_empty = 0;
+  int found_partial = 0;
+  int found_complete = 0;
+  struct kmem_slab *start = cache->head;
+  struct kmem_slab *current = cache->head;
+  do {
+    if(current->next->prev != current) {
+      panic("debug_slab_chain: inconsistent prev links");
+    }
+
+    if(!found_partial && slab_is_partial(current)) {
+      found_partial = 1;
+      if(found_complete) {
+        panic("debug_slab_chain: found complete before partial");
+      }
+      if(found_empty) {
+        panic("debug_slab_chain: found empty before partial");
+      }
+    }
+    if(!found_complete && slab_is_complete(current)) {
+      found_complete = 1;
+      if(found_empty) {
+        panic("debug_slab_chain: found empty before complete");
+      }
+    }
+    if(!found_empty && slab_is_empty(current)) {
+      found_empty = 1;
+    }
+
+    current = current->next;
+  } while (current != start);
+
+  if(slab_is_complete(cache->complete_head)) {
+    // all good.
+  } else if(slab_is_partial(cache->complete_head)) {
+    if(found_complete) {
+      panic("debug_slab_chain: complete_head points to partial even though complete slabs exist");
+    }
+    if(found_empty) {
+      panic("debug_slab_chain: complete_head points to partial even though empty slabs exist");
+    }
+  } else if(slab_is_empty(cache->complete_head)) {
+    if(found_complete) {
+      panic("debug_slab_chain: complete_head points to empty even though complete slabs exist");
+    }
+  }
+}
