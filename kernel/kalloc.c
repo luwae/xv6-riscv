@@ -76,9 +76,6 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(!r)
-    r = kmem_reap_single();
-
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;

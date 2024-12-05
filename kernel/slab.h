@@ -1,5 +1,5 @@
 struct kmem_cache {
-  // struct spinlock lock; // TODO
+  struct spinlock lock;
   char *name;
   uint size;
   uint align;

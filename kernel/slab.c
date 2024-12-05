@@ -160,34 +160,10 @@ void kmem_cache_grow(struct kmem_cache *cache) {
   queue_insert(&cache->head_complete, slab);
 }
 
-void *kmem_cache_reap_single(struct kmem_cache *cache) {
-  struct kmem_slab *selected = cache->head_complete;
-  if(!selected)
-    return 0;
-  queue_remove(&cache->head_complete, cache->head_complete);
-  return (void*)PGROUNDDOWN((uint64)selected);
-}
-
 void kmem_cache_reap(struct kmem_cache *cache) {
+  acquire(&cache->lock);
   queue_clear(&cache->head_complete);
-}
-
-void *kmem_reap_single(void) {
-  struct kmem_cache *current = &cache_cache;
-  do {
-    void *reaped = kmem_cache_reap_single(current);
-    if(reaped)
-      return reaped;
-    current = current->next;
-  } while(current != &cache_cache);
-}
-
-void kmem_reap(void) {
-  struct kmem_cache *current = &cache_cache;
-  do {
-    kmem_cache_reap(current);
-    current = current->next;
-  } while(current != &cache_cache);
+  release(&cache->lock);
 }
 
 void *kmem_cache_alloc(struct kmem_cache *cache, int flags) {
