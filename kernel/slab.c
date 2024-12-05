@@ -80,10 +80,22 @@ void queue_insert(struct kmem_slab **head_ptr, struct kmem_slab *slab) {
     *head_ptr = slab;
 }
 
+void slab_clear(struct kmem_slab *slab) {
+  void *buf = page;
+  void *end = (char*)slab - slab->buf_eff_size;
+  while(buf <= end) {
+    if(cache->destructor) {
+      cache->destructor(buf, cache->size);
+    }
+    buf = (void*)((char*)buf + slab->buf_eff_size);
+  }
+}
+
 void queue_clear(struct kmem_slab **head_ptr) {
   struct kmem_slab *start = *head_ptr;
   struct kmem_slab *current = *head_ptr;
   do {
+    slab_clear(current);
     kfree((void*)PGROUNDDOWN((uint64)current));
     current = current->next;
   } while(current != start);
