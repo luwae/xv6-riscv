@@ -120,7 +120,7 @@ struct kmem_slab *kmem_slab_create(uint size, uint align, void (*constructor)(vo
     buf = (void*)((char*)buf + slab->buf_eff_size);
   }
   // last freelist entry to NULL
-  ctl = (struct kmem_bufctl*)((char*)buf - slab->buf_eff_size - sizeof(struct kmem_bufctl));
+  ctl = (struct kmem_bufctl*)((char*)buf - slab->buf_eff_size + slab->bufctl_offset);
   ctl->next = NULL;
 
   return slab;
