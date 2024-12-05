@@ -1,11 +1,12 @@
 struct kmem_cache {
+  // struct spinlock lock; // TODO
   char *name;
   uint size;
   uint align;
   void (*constructor)(void*, uint);
   void (*destructor)(void*, uint);
-  // struct sleeplock lock; // TODO spinlock?
   struct kmem_slab *head;
+  struct kmem_slab *complete_head;
 };
 
 struct kmem_slab {
