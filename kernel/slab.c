@@ -1,4 +1,5 @@
 void debug_slab_chain(struct kmem_cache*);
+void debug_print_slab_chain(struct kmem_cache*);
 
 // This uses Bonwick's naming scheme, even though I'm not a fan:
 // - _empty_ slabs are those that are fully occupied
@@ -85,7 +86,7 @@ void queue_on_empty_to_partial(struct kmem_cache *cache, struct kmem_slab *slab)
     queue_remove(cache, slab);
     queue_insert_head(cache, slab);
   }
-  if (cache->complete_head == slab) {
+  if(cache->complete_head== slab) {
     cache->complete_head = cache->complete_head->next;
   }
 }
@@ -93,10 +94,16 @@ void queue_on_empty_to_partial(struct kmem_cache *cache, struct kmem_slab *slab)
 // slab was partial and now is fully occupied (it was the current head)
 void queue_on_partial_to_empty(struct kmem_cache *cache, struct kmem_slab *slab) {
   cache->head = cache->head->next;
+  if(!slab_is_partial(cache->head)) { // TODO what am I doing
+    cache->head = cache->complete_head;
+  }
 }
 
 // slab had one allocation and now 0
 void queue_on_partial_to_complete(struct kmem_cache *cache, struct kmem_slab *slab) {
+  if (cache->head == slab) {
+    cache->head = cache->head->next;
+  }
   if (cache->complete_head != slab) {
     queue_remove(cache, slab);
     queue_insert_complete_head(cache, slab);
@@ -262,6 +269,7 @@ void kmem_cache_destroy(struct kmem_cache *cache) {
 // -------------
 
 void debug_slab_chain(struct kmem_cache *cache) {
+  debug_print_slab_chain(cache);
   if(!cache->head) {
     if(!cache->complete_head) {
       panic("debug_slab_chain: head is 0, but complete_head isn't");
@@ -308,18 +316,37 @@ void debug_slab_chain(struct kmem_cache *cache) {
     current = current->next;
   } while (current != start);
 
-  if(slab_is_complete(cache->complete_head)) {
-    // all good.
-  } else if(slab_is_partial(cache->complete_head)) {
-    if(found_complete) {
-      panic("debug_slab_chain: complete_head points to partial even though complete slabs exist");
+  if(found_complete) {
+    if(!slab_is_complete(cache->complete_head)) {
+      panic("debug_slab_chain: have complete, but complete_head points somewhere else");
     }
-    if(found_empty) {
-      panic("debug_slab_chain: complete_head points to partial even though empty slabs exist");
+  } else if(found_partial && found_empty) {
+    if(!slab_is_empty(cache->complete_head) || !slab_is_partial(cache->complete_head->prev)) {
+      panic("debug_slab_chain: complete_head should point to first empty past last partial");
     }
-  } else if(slab_is_empty(cache->complete_head)) {
-    if(found_complete) {
-      panic("debug_slab_chain: complete_head points to empty even though complete slabs exist");
-    }
+  } else {
+    // position doesn't matter.
   }
+}
+
+void debug_print_slab_chain(struct kmem_cache *cache) {
+  printf("BEGIN\n");
+  if(!cache || !cache->head) {
+    return;
+  }
+  struct kmem_slab *start = cache->head;
+  struct kmem_slab *current = cache->head;
+  do {
+    printf("%p(%d/%d)", current, current->refcnt, current->refcnt_max);
+    if (cache->head == current) {
+      printf("(head)");
+    }
+    if (cache->complete_head == current) {
+      printf("(current_head)");
+    }
+    printf("\n");
+
+    current = current->next;
+  } while(current != start);
+  printf("END\n");
 }
