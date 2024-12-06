@@ -109,7 +109,7 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 
 // slab.c
-struct kmem_cache *kmem_cache_create(char *, uint, uint,
+struct kmem_cache *kmem_cache_create(char *, uint, int,
                                      void (*)(void *, uint),
                                      void (*)(void *, uint));
 void               kmem_cache_reap(struct kmem_cache *);

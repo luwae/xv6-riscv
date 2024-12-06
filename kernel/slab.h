@@ -1,10 +1,16 @@
+struct slab_layout_info {
+  int has_external_bufctl;
+  uint bufctl_offset;
+  uint buf_eff_size;
+  uint refcnt_max;
+};
+
 struct kmem_cache {
   struct spinlock lock;
   char *name;
-  uint size;
-  uint align;
   void (*constructor)(void*, uint);
   void (*destructor)(void*, uint);
+  struct slab_layout_info layout;
   struct kmem_slab *head_empty;
   struct kmem_slab *head_partial;
   struct kmem_slab *head_complete;
@@ -13,13 +19,11 @@ struct kmem_cache {
 };
 
 struct kmem_slab {
+  struct slab_layout_info layout;
+  uint refcnt;
+  struct kmem_bufctl *free_head;
   struct kmem_slab *prev;
   struct kmem_slab *next;
-  struct kmem_bufctl *free_head;
-  uint bufctl_offset;
-  uint buf_eff_size;
-  uint refcnt;
-  uint refcnt_max;
 };
 
 struct kmem_bufctl {

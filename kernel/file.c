@@ -23,7 +23,9 @@ void
 fileinit(void)
 {
   initlock(&ftable.lock, "ftable");
-  ftable.file_alloc = kmem_cache_create("file", sizeof(struct file), 8, 0, 0);
+  // since we don't have resources that need to be preserved between allocs and frees,
+  // we just set bufctl_offset to 0.
+  ftable.file_alloc = kmem_cache_create("file", sizeof(struct file), 0, 0, 0);
 }
 
 // Allocate a file structure.
