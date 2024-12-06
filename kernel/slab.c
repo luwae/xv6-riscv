@@ -14,12 +14,19 @@
 // 1 at the end so it's not aligned (illegal pointer value)
 #define KMEM_CANARY ((struct kmem_bufctl*) 0xdeadcafecafedea1)
 
+void cache_construct(void *ptr, uint size) {
+  struct kmem_cache *cache = ptr;
+  initlock(&cache->lock, "cache");
+}
+
 // this is also the head of the cache chain
 struct kmem_cache cache_cache = {
+  // TODO perhaps we should do this in a slabinit().
+  .lock = { .name = "cache", .locked = 0, .cpu = 0 },
   .name = "cache",
   .size = sizeof(struct kmem_cache),
   .align = 8, // TODO
-  .constructor = 0,
+  .constructor = cache_construct,
   .destructor = 0,
   .head_empty = 0,
   .head_partial = 0,
