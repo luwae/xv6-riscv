@@ -1,5 +1,8 @@
-void debug_slab_chain(struct kmem_cache*);
-void debug_print_slab_chain(struct kmem_cache*);
+#include "types.h"
+#include "riscv.h"
+#include "defs.h"
+#include "spinlock.h"
+#include "slab.h"
 
 // This uses Bonwick's naming scheme, even though I'm not a fan:
 // - _empty_ slabs are those that are fully occupied
@@ -57,7 +60,7 @@ void queue_remove(struct kmem_slab **head_ptr, struct kmem_slab *slab) {
   slab->next->prev = slab->prev;
 
   if(slab->next == slab) {
-    *head_ptr = NULL;
+    *head_ptr = 0;
   } else if(*head_ptr == slab) {
     *head_ptr = slab->next;
   }
@@ -80,8 +83,8 @@ void queue_insert(struct kmem_slab **head_ptr, struct kmem_slab *slab) {
     *head_ptr = slab;
 }
 
-void slab_clear(struct kmem_slab *slab) {
-  void *buf = page;
+void slab_clear(struct kmem_cache *cache, struct kmem_slab *slab) {
+  void *buf = (void *)PGROUNDDOWN((uint64)slab);
   void *end = (char*)slab - slab->buf_eff_size;
   while(buf <= end) {
     if(cache->destructor) {
@@ -91,16 +94,16 @@ void slab_clear(struct kmem_slab *slab) {
   }
 }
 
-void queue_clear(struct kmem_slab **head_ptr) {
+void queue_clear(struct kmem_cache *cache, struct kmem_slab **head_ptr) {
   struct kmem_slab *start = *head_ptr;
   struct kmem_slab *current = *head_ptr;
   do {
-    slab_clear(current);
+    slab_clear(cache, current);
     kfree((void*)PGROUNDDOWN((uint64)current));
     current = current->next;
   } while(current != start);
 
-  *head_ptr = NULL;
+  *head_ptr = 0;
 }
 
 struct kmem_cache *kmem_cache_create(
@@ -158,7 +161,6 @@ void kmem_cache_grow(struct kmem_cache *cache) {
     if(cache->constructor) {
       cache->constructor(buf, cache->size);
     }
-    void *buf_next = (void*)((char*)buf + slab->buf_eff_size);
     ctl = (struct kmem_bufctl*)((char*)buf + slab->bufctl_offset);
     ctl->next = (struct kmem_bufctl*)((char*)ctl + slab->buf_eff_size);
 
@@ -166,7 +168,7 @@ void kmem_cache_grow(struct kmem_cache *cache) {
   }
   // last freelist entry to NULL
   ctl = (struct kmem_bufctl*)((char*)buf - slab->buf_eff_size + slab->bufctl_offset);
-  ctl->next = NULL;
+  ctl->next = 0;
 
   // this is stupid because we immediately take something out again
   queue_insert(&cache->head_complete, slab);
@@ -174,7 +176,7 @@ void kmem_cache_grow(struct kmem_cache *cache) {
 
 void kmem_cache_reap(struct kmem_cache *cache) {
   acquire(&cache->lock);
-  queue_clear(&cache->head_complete);
+  queue_clear(cache, &cache->head_complete);
   release(&cache->lock);
 }
 
@@ -226,9 +228,9 @@ void kmem_cache_free(struct kmem_cache *cache, void *buf) {
 }
 
 void kmem_cache_destroy(struct kmem_cache *cache) {
-  queue_clear(&cache->head_empty);
-  queue_clear(&cache->head_partial);
-  queue_clear(&cache->head_complete);
+  queue_clear(cache, &cache->head_empty);
+  queue_clear(cache, &cache->head_partial);
+  queue_clear(cache, &cache->head_complete);
   cache_queue_remove(cache);
   kmem_cache_free(&cache_cache, cache);
 }

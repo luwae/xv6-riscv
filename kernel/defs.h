@@ -2,6 +2,7 @@ struct buf;
 struct context;
 struct file;
 struct inode;
+struct kmem_cache;
 struct pipe;
 struct proc;
 struct spinlock;
@@ -106,6 +107,15 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+
+// slab.c
+struct kmem_cache *kmem_cache_create(char *, uint, uint,
+                                     void (*)(void *, uint),
+                                     void (*)(void *, uint));
+void               kmem_cache_reap(struct kmem_cache *);
+void *             kmem_cache_alloc(struct kmem_cache *, int);
+void               kmem_cache_free(struct kmem_cache *, void *);
+void               kmem_cache_destroy(struct kmem_cache *);
 
 // swtch.S
 void            swtch(struct context*, struct context*);

@@ -16,31 +16,29 @@
 struct devsw devsw[NDEV];
 struct {
   struct spinlock lock;
-  struct file file[NFILE];
+  struct kmem_cache *file_alloc;
 } ftable;
 
 void
 fileinit(void)
 {
   initlock(&ftable.lock, "ftable");
+  ftable.file_alloc = kmem_cache_create("file", sizeof(struct file), 8, 0, 0);
 }
 
 // Allocate a file structure.
 struct file*
 filealloc(void)
 {
-  struct file *f;
+  // no lock because kmem_caches do their own locking
+  struct file *f= kmem_cache_alloc(ftable.file_alloc, 0);
 
-  acquire(&ftable.lock);
-  for(f = ftable.file; f < ftable.file + NFILE; f++){
-    if(f->ref == 0){
-      f->ref = 1;
-      release(&ftable.lock);
-      return f;
-    }
-  }
-  release(&ftable.lock);
-  return 0;
+  if(!f)
+    panic("filealloc");
+
+  memset(f, 0, sizeof(struct file));
+  f->ref = 1;
+  return f;
 }
 
 // Increment ref count for file f.
@@ -59,8 +57,6 @@ filedup(struct file *f)
 void
 fileclose(struct file *f)
 {
-  struct file ff;
-
   acquire(&ftable.lock);
   if(f->ref < 1)
     panic("fileclose");
@@ -68,18 +64,18 @@ fileclose(struct file *f)
     release(&ftable.lock);
     return;
   }
-  ff = *f;
-  f->ref = 0;
-  f->type = FD_NONE;
   release(&ftable.lock);
 
-  if(ff.type == FD_PIPE){
-    pipeclose(ff.pipe, ff.writable);
-  } else if(ff.type == FD_INODE || ff.type == FD_DEVICE){
+  // we are the only one having a reference to this file now. We can take our time with cleanup.
+  // it cannot be repurposed until we kmem_cache_free it.
+  if(f->type == FD_PIPE){
+    pipeclose(f->pipe, f->writable);
+  } else if(f->type == FD_INODE || f->type == FD_DEVICE){
     begin_op();
-    iput(ff.ip);
+    iput(f->ip);
     end_op();
   }
+  kmem_cache_free(ftable.file_alloc, f);
 }
 
 // Get metadata about file f.
