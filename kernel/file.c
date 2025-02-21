@@ -26,11 +26,7 @@ fileinit(void)
   initlock(&ftable.lock, "ftable");
   // since we don't have resources that need to be preserved between allocs and frees,
   // we just set bufctl_offset to 0.
-  struct kmem_cfg cfg = {
-    .size = sizeof(struct file),
-    .flags = 0,
-    .bufctl_offset = 0
-  };
+  struct kmem_cfg cfg = KM_CFG_DEFAULT_INITIALIZER(sizeof(struct file));
   ftable.file_alloc = kmem_cache_create("file", &cfg, 0, 0);
   if(!ftable.file_alloc)
     panic("fileinit");

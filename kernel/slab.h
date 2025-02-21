@@ -6,6 +6,12 @@ struct kmem_cfg {
   uint bufctl_offset; // only used when KM_CFG_BUFCTL_INTERNAL is set
 };
 
+#define KM_CFG_DEFAULT_INITIALIZER(sz) (struct kmem_cfg){ \
+  .size = (sz), \
+  .flags = 0, \
+  .bufctl_offset = 0 \
+}
+
 struct kmem_layout {
   int has_external_bufctl;
   uint bufctl_offset;

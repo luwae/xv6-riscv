@@ -22,34 +22,34 @@
 #include "defs.h"
 #include "fs.h"
 #include "buf.h"
+#include "slab.h"
 
 struct {
   struct spinlock lock;
-  struct buf buf[NBUF];
+  struct kmem_cache *buf_alloc;
 
   // Linked list of all buffers, through prev/next.
   // Sorted by how recently the buffer was used.
   // head.next is most recent, head.prev is least.
+  // TODO the head itself is never used, I think? Is this a problem?
   struct buf head;
 } bcache;
+
+void buf_construct(void *ptr, uint size) {
+  struct buf *b = ptr;
+  initsleeplock(&b->lock, "buffer");
+}
 
 void
 binit(void)
 {
-  struct buf *b;
-
   initlock(&bcache.lock, "bcache");
-
-  // Create linked list of buffers
+  struct kmem_cfg cfg = KM_CFG_DEFAULT_INITIALIZER(sizeof(struct buf));
+  bcache.buf_alloc = kmem_cache_create("buffer", &cfg, buf_construct, 0);
+  if(!bcache.buf_alloc)
+    panic("binit");
   bcache.head.prev = &bcache.head;
   bcache.head.next = &bcache.head;
-  for(b = bcache.buf; b < bcache.buf+NBUF; b++){
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
-    initsleeplock(&b->lock, "buffer");
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
-  }
 }
 
 // Look through buffer cache for block on device dev.
@@ -73,19 +73,17 @@ bget(uint dev, uint blockno)
   }
 
   // Not cached.
-  // Recycle the least recently used (LRU) unused buffer.
-  for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
-    if(b->refcnt == 0) {
-      b->dev = dev;
-      b->blockno = blockno;
-      b->valid = 0;
-      b->refcnt = 1;
-      release(&bcache.lock);
-      acquiresleep(&b->lock);
-      return b;
-    }
-  }
-  panic("bget: no buffers");
+  // use new buffer.
+  b = kmem_cache_alloc(bcache.buf_alloc, 0);
+  if(!b)
+    panic("bget: no buffers");
+  b->dev = dev;
+  b->blockno = blockno;
+  b->valid = 0;
+  b->refcnt = 1;
+  release(&bcache.lock);
+  acquiresleep(&b->lock);
+  return b;
 }
 
 // Return a locked buf with the contents of the indicated block.
@@ -149,5 +147,3 @@ bunpin(struct buf *b) {
   b->refcnt--;
   release(&bcache.lock);
 }
-
-
